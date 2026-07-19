@@ -1,0 +1,4 @@
+# Optional: only needed for --output-xlsx and --kb-import (reading the KB Excel file).
+# JSON mode, and KB management other than --kb-import (list/add/update/delete), are stdlib-only
+# (sqlite3 is standard library -- no package needed for the KB database itself).
+openpyxl>=3.1
