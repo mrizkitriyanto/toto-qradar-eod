@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Reference:
   GET /siem/offenses_ocsf -- QRadar API 28.0
@@ -47,12 +46,13 @@ EXCEL_COLUMNS = [
     "Log Source",
     "Src IP",
     "Dst IP",
-    "Offense Source",
+    "Hostname",
     "Username",
     "Deskripsi",
     "Rekomendasi",
     "Action",
     "Timestamp",
+    "Correlation ID",
 ]
 
 
@@ -376,14 +376,34 @@ def get_username(record: dict) -> str:
     return NA
 
 
-def format_timestamp_range(record: dict) -> str:
-    def fmt(epoch_ms):
-        if epoch_ms is None:
-            return "?"
-        dt = datetime.fromtimestamp(epoch_ms / 1000, tz=timezone.utc).astimezone(REPORT_TIMEZONE)
-        return dt.strftime("%Y-%m-%d %H:%M:%S")
+def get_correlation_id(record: dict) -> str:
+    value = (record.get("metadata") or {}).get("correlation_uid")
+    return value if value else NA
 
-    return f"{fmt(record.get('start_time'))} - {fmt(record.get('end_time'))}"
+
+EMAIL_RE = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
+DOMAIN_RE = re.compile(r"\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}\b")
+
+
+def get_hostname(record: dict) -> str:
+    """Extract a domain/subdomain from enrichments.offense_source via regex.
+    Email-style correlation keys (e.g. "user@ptsmi.co.id") are excluded
+    entirely -- N/A, not truncated down to the domain part. Bare IPs don't
+    match (final label must be alphabetic), bare usernames without a dot
+    don't match either -- both also fall back to N/A."""
+    value = get_enrichment_value(record, "offense_source")
+    if not value or EMAIL_RE.search(value):
+        return NA
+    m = DOMAIN_RE.search(value)
+    return m.group(0) if m else NA
+
+
+def format_original_time(record: dict) -> str:
+    epoch_ms = (record.get("metadata") or {}).get("original_time")
+    if epoch_ms is None:
+        return NA
+    dt = datetime.fromtimestamp(epoch_ms / 1000, tz=timezone.utc).astimezone(REPORT_TIMEZONE)
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def get_severity(record: dict) -> str:
@@ -598,7 +618,6 @@ def transform_to_rows(matches: list, kb_conn: sqlite3.Connection = None) -> list
     """Map each OCSF offense record to one report row, keyed by EXCEL_COLUMNS."""
     rows = []
     for r in matches:
-        offense_source = get_enrichment_value(r, "offense_source")
         kb_hit = kb_lookup(kb_conn, r.get("finding_info", {}).get("title")) if kb_conn else None
         rows.append({
             "Offense ID": get_uid(r) if get_uid(r) is not None else NA,
@@ -607,7 +626,7 @@ def transform_to_rows(matches: list, kb_conn: sqlite3.Connection = None) -> list
             "Log Source": get_log_source(r),
             "Src IP": get_ip_column(r, "src_ip_address", "src_endpoint"),
             "Dst IP": get_dst_column(r),
-            "Offense Source": offense_source or NA,
+            "Hostname": get_hostname(r),
             "Username": get_username(r),
             # Deskripsi/Rekomendasi come from the SQLite KB (kb_lookup, matched
             # by keyword-in-title with longest-match tie-break) when available.
@@ -616,7 +635,8 @@ def transform_to_rows(matches: list, kb_conn: sqlite3.Connection = None) -> list
             "Deskripsi": kb_hit["deskripsi"] if kb_hit else clean_text(r.get("finding_info", {}).get("desc")),
             "Rekomendasi": kb_hit["rekomendasi"] if kb_hit else NA,
             "Action": clean_text(r.get("status")),
-            "Timestamp": format_timestamp_range(r),
+            "Timestamp": format_original_time(r),
+            "Correlation ID": get_correlation_id(r),
         })
     return rows
 
