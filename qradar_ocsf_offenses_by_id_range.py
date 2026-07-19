@@ -8,8 +8,6 @@ Reference:
   python3 qradar_ocsf_offenses_by_id_range.py --host qradar.example.com --start-id 5001 --end-id 5005 -u user --insecure --output-xlsx
   python3 qradar_ocsf_offenses_by_id_range.py --host qradar.example.com --start-id 5001 --end-id 5999 -u user --insecure --severity High,Critical --output-xlsx
 
-See "QRadar Offense Report - Excel Output Spec.md" for the full OCSF-to-column
-field mapping used by --output-xlsx.
 """
 
 import argparse
